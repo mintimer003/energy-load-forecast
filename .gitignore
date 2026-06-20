@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+
+# CatBoost служебное
+catboost_info/
+
+# Данные (большой объём; скачиваются с Kaggle / пересоздаются скриптами)
+*.csv
+
+# Jupyter
+.ipynb_checkpoints/
