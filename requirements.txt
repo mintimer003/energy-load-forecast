@@ -6,3 +6,4 @@ catboost
 matplotlib
 seaborn
 jupyter
+streamlit
