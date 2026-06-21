@@ -2,12 +2,13 @@
 
 Каждый лаг и скользящее окно сдвинуты минимум на горизонт прогноза (24 ч):
 для цели на сутки вперёд на момент прогноза известны только данные старше 24 ч,
-поэтому более короткие лаги дали бы утечку. Календарь — исключение, он известен
-наперёд для любой метки времени."""
+поэтому более короткие лаги дали бы утечку. Календарь (включая праздники) —
+исключение, он известен наперёд для любой метки времени."""
 from __future__ import annotations
 from pathlib import Path
 import numpy as np
 import pandas as pd
+from pandas.tseries.holiday import USFederalHolidayCalendar
 from utils import TARGET, HORIZON, get_logger
 
 log = get_logger(__name__)
@@ -24,6 +25,9 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     out["dayofweek"] = index.dayofweek
     out["month"] = index.month
     out["is_weekend"] = (index.dayofweek >= 5).astype(int)
+
+    holidays = USFederalHolidayCalendar().holidays(start=index.min(), end=index.max())
+    out["is_holiday"] = index.normalize().isin(holidays).astype(int)   # известен наперёд, как календарь
 
     out["hour_sin"] = np.sin(2 * np.pi * index.hour / 24)
     out["hour_cos"] = np.cos(2 * np.pi * index.hour / 24)
