@@ -10,3 +10,7 @@ catboost_info/
 
 # Jupyter
 .ipynb_checkpoints/
+production/models/
+production/predictions/
+production/mlruns/
+mlruns/

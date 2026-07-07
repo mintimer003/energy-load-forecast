@@ -1,0 +1,40 @@
+# Продакшн-контур: обучение, ежедневный прогноз, API, мониторинг, MLflow UI.
+# Данные лежат в ./  (CSV), артефакты — в ./production/models и ./production/predictions.
+#
+#   docker compose run --rm train      # обучить и сохранить модели
+#   docker compose run --rm predict    # batch-прогноз на сутки вперёд
+#   docker compose run --rm monitor    # качество/дрейф/фолбэк -> status.json
+#   docker compose up serve            # API на http://localhost:8000
+#   docker compose up mlflow           # MLflow UI на http://localhost:5000
+#
+# По расписанию (cron / Планировщик Windows) гоняются predict и monitor раз в сутки,
+# train — по сигналу retrain_recommended из status.json или раз в месяц.
+
+services:
+  train:
+    build: {context: ., dockerfile: production/Dockerfile}
+    volumes: [".:/data:ro", "./production/models:/models", "./production/mlruns:/app/mlruns"]
+    command: python train.py --data-dir /data --models-dir /models
+
+  predict:
+    build: {context: ., dockerfile: production/Dockerfile}
+    volumes: [".:/data:ro", "./production/models:/models:ro", "./production/predictions:/preds"]
+    command: python predict_daily.py --data-dir /data --models-dir /models --out-dir /preds
+
+  monitor:
+    build: {context: ., dockerfile: production/Dockerfile}
+    volumes: [".:/data:ro", "./production/models:/models:ro", "./production/predictions:/preds"]
+    command: python monitor.py --data-dir /data --models-dir /models --pred-dir /preds
+
+  serve:
+    build: {context: ., dockerfile: production/Dockerfile}
+    volumes: ["./production/models:/models:ro", "./production/predictions:/preds:ro"]
+    environment: {MODELS_DIR: /models, PREDICTIONS_DIR: /preds}
+    ports: ["8000:8000"]
+    command: uvicorn serve:app --host 0.0.0.0 --port 8000
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    volumes: ["./production/mlruns:/mlruns"]
+    ports: ["5000:5000"]
+    command: mlflow ui --backend-store-uri /mlruns --host 0.0.0.0 --port 5000
