@@ -14,3 +14,7 @@ production/models/
 production/predictions/
 production/mlruns/
 mlruns/
+
+# служебное
+mlflow.db
+.vscode/

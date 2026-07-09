@@ -1,10 +1,12 @@
 """10_tuning.py — подбор гиперпараметров CatBoost (Optuna) + важность признаков.
 
-Optuna ищет гиперпараметры, оценивая каждую комбинацию на бэктесте со скользящим
-началом. Число деревьев вручную НЕ задаём — его находит EARLY STOPPING на
-ВРЕМЕННОЙ валидации (последний кусок обучающего окна, не случайный), чтобы
-сохранить защиту от утечки. В конце: сравнение дефолт vs затюненный и важность
-признаков затюненной модели.
+Пространство поиска: learning_rate, depth, l2_leaf_reg, random_strength,
+subsample (через Bernoulli bootstrap), rsm — аналоги max_depth / reg_lambda /
+subsample / colsample_bytree из XGBoost в терминах CatBoost. Число деревьев не
+варьируется: iterations задан с запасом, реальное число находит early stopping
+на временной валидации (последняя доля обучающего окна, не случайная).
+
+В конце: сравнение дефолт vs затюненный и важность признаков затюненной модели.
 
 ЗАПУСК: pip install optuna   затем   python 10_tuning.py   (нужен aep_features.csv)
 """
@@ -16,7 +18,7 @@ from catboost import CatBoostRegressor
 from utils import TARGET, load_features, rolling_origin, mape, mase, get_logger
 
 log = get_logger(__name__)
-N_TRIALS = 30
+N_TRIALS = 60
 TUNING_FOLDS = 3            # для скорости подбора; финал — на всех 6 окнах
 VAL_FRACTION = 0.1         # последняя доля обучающего окна -> валидация early stopping
 EARLY_STOPPING = 50
@@ -46,24 +48,33 @@ def backtest(features, params, n_folds=6, early_stop=True):
     return pd.DataFrame(scores).mean(), model
 
 
+def log_trial(study, trial):
+    """Печатает прогресс после каждой пробы Optuna."""
+    log.info("проба %3d | MASE %.4f | лучшая %.4f", trial.number, trial.value, study.best_value)
+
+
 def main():
-    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    optuna.logging.set_verbosity(optuna.logging.INFO)
     features = load_features()
 
     def objective(trial):
         params = {
             "iterations": 3000,
-            "learning_rate": trial.suggest_float("learning_rate", 0.02, 0.3, log=True),
-            "depth": trial.suggest_int("depth", 4, 10),
+            "bootstrap_type": "Bernoulli",                     # нужно для subsample
+            "learning_rate": trial.suggest_float("learning_rate", 0.01, 0.3, log=True),
+            "depth": trial.suggest_int("depth", 3, 8),
             "l2_leaf_reg": trial.suggest_float("l2_leaf_reg", 1.0, 10.0, log=True),
+            "random_strength": trial.suggest_float("random_strength", 0.0, 10.0),
+            "subsample": trial.suggest_float("subsample", 0.5, 0.8),
+            "rsm": trial.suggest_float("rsm", 0.5, 1.0),       # доля признаков (colsample_bytree)
         }
         score, _ = backtest(features, params, n_folds=TUNING_FOLDS, early_stop=True)
         return score["MASE"]
 
     study = optuna.create_study(direction="minimize")
-    log.info("подбор: %d проб на %d окнах (early stopping сам найдёт число деревьев)...", N_TRIALS, TUNING_FOLDS)
-    study.optimize(objective, n_trials=N_TRIALS)
-    best = {"iterations": 3000, **study.best_params}
+    log.info("подбор: %d проб на %d окнах, %d гиперпараметров...", N_TRIALS, TUNING_FOLDS, 6)
+    study.optimize(objective, n_trials=N_TRIALS, callbacks=[log_trial])
+    best = {"iterations": 3000, "bootstrap_type": "Bernoulli", **study.best_params}
     log.info("лучшие параметры: %s", {k: (round(v, 4) if isinstance(v, float) else v) for k, v in study.best_params.items()})
 
     log.info("сравнение на всех 6 окнах: дефолт vs затюненный...")
